@@ -5,7 +5,7 @@ import torch
 import torchvision
 import transformers
 
-from mmnoise.utils import losses
+from mmnoise.utils import losses, distributed
 from mmnoise.models.components import TemperatureScale
 
 
@@ -91,11 +91,6 @@ class RetrievalModule(pl.LightningModule):
 
         return {'image_features': imgs_proj, 'text_features': text_proj, 'index': idx}
 
-    def validation_step_end(self, batch_parts, *args, **kwargs):
-        if self.trainer.world_size > 1:
-            return {k: torch.cat(v, 0) for k, v in batch_parts.items()}
-        return batch_parts
-
     def validation_epoch_end(self, outputs):
         img_feat = [x['image_features'] for x in outputs]
         text_feat = [x['text_features'] for x in outputs]
@@ -107,6 +102,11 @@ class RetrievalModule(pl.LightningModule):
         img_feat = torch.cat(img_feat, 0)
         text_feat = torch.cat(text_feat, 0)
         idx = torch.cat(idx, 0)
+        if distributed.is_distributed():
+            img_feat = self.all_gather(img_feat).flatten(0, 1)
+            text_feat = self.all_gather(text_feat).flatten(0, 1)
+            idx += distributed.rank() * idx.shape[0]
+            idx = self.all_gather(idx).flatten(0, 1)
         preds = img_feat @ text_feat.T
         targets = torch.arange(img_feat.shape[0], device=self.device)[:,None].eq(idx)
 
@@ -119,7 +119,6 @@ class RetrievalModule(pl.LightningModule):
     def configure_optimizers(self):
         # instantiate the optimizer and learning rate schedule
         # need to handle multiple param groups, for weight decay and for optionally freezing certain layers
-        breakpoint()
         if self.opt_args is not None:
             self.opt_args['init_args']['lr'] = self.lr
             optimizer = pl.cli.instantiate_class(self.parameters(), self.opt_args)
