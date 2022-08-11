@@ -1,0 +1,5 @@
+class_path: mmnoise.datamodules.Flickr30kDatamodule
+init_args:
+  root: "${oc.env:DATADIR}/flickr30k"
+  batch_size: 96
+  num_workers: 6

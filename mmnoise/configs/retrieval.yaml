@@ -1,0 +1,54 @@
+seed_everything: 1122334455
+trainer:
+  enable_checkpointing: true
+  default_root_dir: ${oc.env:WORKDIR}/logs/
+  num_nodes: 1
+  devices: 1
+  enable_progress_bar: true
+  check_val_every_n_epoch: 1
+  max_epochs: 200
+  log_every_n_steps: 50
+  accelerator: gpu
+  strategy: null
+  precision: 32
+  num_sanity_val_steps: 2
+  resume_from_checkpoint: null
+  auto_lr_find: false
+  amp_backend: native
+  amp_level: null
+  # callbacks
+  callbacks:
+    - class_path: pytorch_lightning.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: ${trainer.logger[0].init_args.dir}/checkpoints
+        filename: "{epoch}"
+    - class_path: pytorch_lightning.callbacks.LearningRateMonitor
+  # logging
+  logger:
+    - class_path: pytorch_lightning.loggers.WandbLogger
+      init_args:
+        project: multimodal-noise
+        dir: ${next_run:${trainer.default_root_dir},True}
+        save_dir: ${next_run:${trainer.default_root_dir},True}
+        offline: false
+
+model:
+  image_encoder: resnet18
+  text_encoder: bert-base-uncased
+  tokenizer: null
+  embed_dim: 256
+  criterion: CLIPLoss
+
+optimizer:
+  class_path: torch.optim.SGD
+  init_args:
+    lr: 0.05
+    momentum: 0.9
+    weight_decay: 0
+    nesterov: false
+
+lr_scheduler:
+  class_path: torch.optim.lr_scheduler.StepLR
+  init_args:
+    step_size: 50
+    gamma: 0.1
