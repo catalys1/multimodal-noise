@@ -1,3 +1,5 @@
+'''Custom resolvers that can be used in configuration files through OmegaConf.
+'''
 import os
 import re
 
@@ -13,6 +15,8 @@ def register(cache=False):
 
 @register(cache=True)
 def next_run(root, wandb=True):
+    '''Determine the name of the next run and setup the run folder.
+    '''
     run = 0
     if os.path.exists(root):
         runs = [x for x in os.listdir(root) if re.match(r'run-\d+', x)]
@@ -24,3 +28,11 @@ def next_run(root, wandb=True):
     if wandb:
         os.makedirs(os.path.join(path, 'wandb'))
     return path
+
+
+@register(cache=False)
+def path_seg(path, seg_idx=-1):
+    '''Given a path made up of segments separated by "/", return the segment at seg_idx.
+    '''
+    segments = str(path).split('/')
+    return segments[seg_idx]
