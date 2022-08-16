@@ -6,6 +6,7 @@ from . import distributed
 class CLIPLoss(torch.nn.Module):
     def contrastive_loss(self, x, y, temperature_scale):
         # if distributed training, gather targets from all gpus to serve as negatives       
+        # https://amsword.medium.com/gradient-backpropagation-with-torch-distributed-all-gather-9f3941a381f8
         if distributed.is_distributed():
             rank = distributed.rank()
             with torch.no_grad():
@@ -23,9 +24,7 @@ class CLIPLoss(torch.nn.Module):
         else:
             logits = logits * (1 / temperature_scale)
 
-        # do we need to do this multiply by world size?
-        # https://amsword.medium.com/gradient-backpropagation-with-torch-distributed-all-gather-9f3941a381f8
-        return torch.nn.functional.cross_entropy(logits, labels) * distributed.world_size()
+        return torch.nn.functional.cross_entropy(logits, labels)
 
     def forward(self, x, y, temperature_scale=1.0):
         loss = 0.5 * (self.contrastive_loss(x, y, temperature_scale) + self.contrastive_loss(y, x, temperature_scale))
