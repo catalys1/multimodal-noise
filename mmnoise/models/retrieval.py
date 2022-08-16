@@ -1,4 +1,4 @@
-from typing import Callable, Optional, Union
+from typing import Callable, List, Optional, Union
 
 import pytorch_lightning as pl
 import torch
@@ -6,43 +6,59 @@ import torchvision
 import transformers
 
 from mmnoise.utils import losses, distributed
+from mmnoise.models import model_utils
 from mmnoise.models.components import TemperatureScale
 
 
+def default_config(name, vision=True):
+    config = dict(name=name)
+    if vision:
+        config['create_func'] = model_utils.vision_model_no_fc
+    else:
+        config['create_func'] = model_utils.huggingface_model
+    return config
+
+
+def get_model(model_data, vision=True):
+    if isinstance(model_data, torch.nn.Module):
+        return model_data
+    elif isinstance(model_data, str):
+        config = default_config(model_data, vision)
+    elif isinstance(model_data, dict):
+        config = model_data
+    return model_utils.create_model_from_config(config)
+    
+
 class RetrievalModule(pl.LightningModule):
+    '''
+    '''
     def __init__(
         self,
-        image_encoder: Union[str, torch.nn.Module] = 'resnet18',
-        text_encoder: Union[str, torch.nn.Module] = 'bert-base-uncased',
-        tokenizer: Optional[Union[str, Callable]] = None,
+        image_encoder: Union[dict, str, torch.nn.Module] = 'resnet18',
+        text_encoder: Union[dict, str, torch.nn.Module] = 'bert-base-uncased',
+        tokenizer: Union[dict, str, Callable] = 'bert-base-uncased',
         embed_dim: int = 256,
         criterion: Union[str, torch.nn.Module] = 'CLIPLoss',
         lr: float = 0.01,
+        lr_scale: Optional[list] = None,
         opt_args: Optional[dict] = None,
-        lrsched_args: Optional[dict] = None,
+        lrsched_args: Optional[List] = None,
     ):
         super().__init__()
 
-        if tokenizer is None:
-            if not isinstance(text_encoder, str):
-                raise RuntimeError(
-                    f'The tokenizer is None but text_encoder is not a string, no way to create a Tokenizer')
-            tokenizer = transformers.AutoTokenizer.from_pretrained(text_encoder)
+        self.image_encoder = get_model(image_encoder, vision=True)
+        self.text_encoder = get_model(text_encoder, vision=False)
+
+        # TODO: still need to modularize tokenizer creation
+        if isinstance(tokenizer, str):
+            tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer)
         self.tokenizer = tokenizer
 
-        if isinstance(image_encoder, str):
-           image_encoder = getattr(torchvision.models, image_encoder)()
-        image_encoder.fc = torch.nn.Identity()
-        self.image_encoder = image_encoder
-
-        if isinstance(text_encoder, str):
-            t_config = transformers.AutoConfig.for_model(text_encoder.split('-')[0])
-            text_encoder = transformers.AutoModel.from_config(t_config)
-        self.text_encoder = text_encoder
-
-        # Need to add projection layers for text and images
-        self.image_projection = torch.nn.Linear(512, embed_dim) # hardcoded for now, need to change
-        self.text_projection = torch.nn.Linear(text_encoder.config.hidden_size, embed_dim)
+        # Pojection layers for text and images
+        img_dim = list(self.image_encoder.parameters())[-1].shape[-1] # probably doesn't work in all cases
+        text_dim = self.text_encoder.config.hidden_size
+        self.image_projection = torch.nn.Linear(img_dim, embed_dim)
+        self.text_projection = torch.nn.Linear(text_dim, embed_dim)
 
         self.temperature = TemperatureScale(0.07)  # learnable temperature
 
@@ -51,6 +67,7 @@ class RetrievalModule(pl.LightningModule):
         self.criterion = criterion
 
         self.lr = lr
+        self.lr_scale = lr_scale or {}
         self.opt_args = opt_args
         self.lrsched_args = lrsched_args
 
@@ -61,7 +78,8 @@ class RetrievalModule(pl.LightningModule):
         text_in = torch.as_tensor(text.input_ids, device=self.device)
         att_mask = torch.as_tensor(text.attention_mask, device=self.device)
         text_out = self.text_encoder(text_in, attention_mask=att_mask)
-        text_feat = text_out.last_hidden_state[:, 0, :]  # only take the first token ([CLS])
+        # only take the first token ([CLS]). Not sure if this is the best approach.
+        text_feat = text_out.last_hidden_state[:, 0, :]
 
         return imgs_feat, text_feat
 
@@ -81,7 +99,19 @@ class RetrievalModule(pl.LightningModule):
 
         self.log('train/loss', loss, on_step=True)
         self.log('temperature', self.temperature.temp, on_step=True)
+
+        with torch.no_grad():
+            logits = imgs_proj @ text_proj.T
+            gap = 0.5 * (logits.max(1)[0].sub(logits.mean(1)).mean() + logits.max(0)[0].sub(logits.mean(0)).mean())
+            self.log('logit_gap', gap, on_step=True)
+
         return {'loss': loss}
+
+    def on_after_backward(self):
+        img_grad = self.image_projection.weight.grad.abs().mean()
+        text_grad = self.text_projection.weight.grad.abs().mean()
+        self.log('grads/img-proj-w', img_grad, on_step=True)
+        self.log('grads/text-proj-w', text_grad, on_step=True)
 
     def validation_step(self, batch, *args, **kwargs):
         imgs, text = batch['images'], batch['text']
@@ -107,24 +137,46 @@ class RetrievalModule(pl.LightningModule):
             text_feat = self.all_gather(text_feat).flatten(0, 1)
             idx += distributed.rank() * idx.shape[0]
             idx = self.all_gather(idx).flatten(0, 1)
+
         preds = img_feat @ text_feat.T
         targets = torch.arange(img_feat.shape[0], device=self.device)[:,None].eq(idx)
+        recall_i2t = compute_recall(preds, targets, k=5)
+        recall_t2i = compute_recall(preds.T, targets.T, k=5)
+        recall = 0.5 * (recall_i2t + recall_t2i)
 
-        relevant = targets.gather(1, preds.topk(5, dim=1, largest=True).indices).sum(dim=1)
-        count = targets.sum(1)
-        count[count == 0] = 1.0
-        recall = torch.mean(relevant / count)
         self.log('val/recall@5', recall, on_epoch=True, on_step=False, prog_bar=True)
 
     def configure_optimizers(self):
         # instantiate the optimizer and learning rate schedule
-        # need to handle multiple param groups, for weight decay and for optionally freezing certain layers
+        # self.lr_scales contains a list of dicts, each with a scale and a list of parameter name
+        # prefixes, which allows for applying different learning rates to different groups of
+        # parameters
+        param_groups = []
+        named_params = dict(filter(lambda x: x[1].requires_grad, self.named_parameters()))
+        for group in self.lr_scale:
+            params = []
+            keys = [x for x in group['params']]
+            for kk in list(named_params.keys()):
+                for k in keys:
+                    if kk.startswith(k):
+                        params.append(named_params.pop(kk))
+            if group['scale'] > 0:
+                pg = {'params': [], 'lr': self.lr * group['scale']}
+                param_groups.append(pg)
+            else:
+                for p in params: p.requires_grad_(False)
+
+        # default param group for any remaining parameters
+        param_groups.append({'params': list(named_params.values()), 'lr': self.lr})
+
+        # create a specified or default optimizer
         if self.opt_args is not None:
             self.opt_args['init_args']['lr'] = self.lr
-            optimizer = pl.cli.instantiate_class(self.parameters(), self.opt_args)
+            optimizer = pl.cli.instantiate_class(param_groups, self.opt_args)
         else:
-            optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=True)
+            optimizer = torch.optim.SGD(param_groups, lr=self.lr, momentum=True)
 
+        # create a specified or default learning rate scheduler
         if self.lrsched_args is not None:
             lr_scheduler = pl.cli.instantiate_class(optimizer, self.lrsched_args)
         else:
@@ -142,3 +194,11 @@ class RetrievalModule(pl.LightningModule):
             'optimizer': optimizer,
             'lr_scheduler': lr_scheduler
         }
+
+
+def compute_recall(preds, targets, k):
+    relevant = targets.gather(1, preds.topk(k, dim=1, largest=True).indices).sum(dim=1)
+    count = targets.sum(1)
+    count[count == 0] = 1.0
+    recall = torch.mean(relevant / count)
+    return recall
