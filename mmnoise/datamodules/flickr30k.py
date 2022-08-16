@@ -39,6 +39,9 @@ class Flickr30kDatamodule(LightningDataModule):
         return content
 
     def split_data(self, dataset, split_file):
+        '''Set the data to a specific split, using a text file containing a single image
+        ID per line.
+        '''
         split = self._load_split(split_file)
         dataset.ids = [x for x in dataset.ids if x[:-4] in split]
         dataset.annotations = dict((id, dataset.annotations[id]) for id in dataset.ids)
@@ -78,6 +81,7 @@ class Flickr30kDatamodule(LightningDataModule):
             val_data = self.dataset_class(root, ann_file, transform)
             self.val_data = self.split_data(val_data, val_split)
         else:
+            # test data
             test_split = os.path.join(self.root, 'flickr30k_entities', 'test.txt')
             transform = self.transforms(stage='test')
             test_data = self.dataset_class(root, ann_file, transform)
@@ -103,15 +107,22 @@ class Flickr30kDatamodule(LightningDataModule):
 
 
 def sample_caption(caption_list):
+    '''Randomly sample a single caption from a list of captions.
+    '''
     idx = random.randrange(0, len(caption_list))
     return caption_list[idx]
 
 
 def image_text_collate(batch):
+    '''Batch images and text, and create an index mapping each text item to an image index.
+    '''
     imgs = default_collate([x[0] for x in batch])
     text = [x[1] for x in batch]
+    # there could be a single str or a list of str for each image. in case of single str, convert to list
     if isinstance(text[0], str):
         text = [[x] for x in text]
+    # idx associates each item in text with a corresponding item in imgs
     idx = default_collate(list(chain(*list([i]*len(x) for i, x in enumerate(text)))))
+    # flatten text into a single list of str
     text = [y for x in text for y in x]
     return {'images': imgs, 'text': text, 'index': idx}
