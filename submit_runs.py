@@ -105,13 +105,16 @@ def sync_slurm_and_config(config, slurm_kw, conf_key, slurm_key):
         OmegaConf.update(config, conf_key, slurm_kw[slurm_key])
     
 
-def setup_run_for_slurm(config, slurm_kw=None):
+def setup_run_for_slurm(config, slurm_kw=None, log_dir=None):
     '''Sets everything up for launching a run. Syncs config and slurm parameters, creates the run directory
     and sets corresponding paths in the config, and saves the config and bash file for launching the job
     in the run directory.
     '''
+    log_dir = log_dir or os.path.join(os.environ['WORKDIR'], 'logs')
+    slurm_kw = slurm_kw or slurm_defaults()
+
     # create the run log directory
-    run_dir = next_run_path(os.path.join(os.environ['WORKDIR'], 'logs'))
+    run_dir = next_run_path(log_dir)
     os.makedirs(run_dir, exist_ok=False)  # should be a new run dir
 
     # update slurm and config with paths
@@ -121,7 +124,6 @@ def setup_run_for_slurm(config, slurm_kw=None):
     config.trainer.default_root_dir = run_dir
 
     # synchronize config and slurm args
-    slurm_kw = slurm_kw or slurm_defaults()
     sync_slurm_and_config(config, slurm_kw, 'trainer.num_nodes', 'nodes')
     sync_slurm_and_config(config, slurm_kw, 'trainer.devices', 'gpus')
     sync_slurm_and_config(config, slurm_kw, 'data.init_args.num_workers', 'cpus_per_task')
@@ -133,8 +135,9 @@ def setup_run_for_slurm(config, slurm_kw=None):
     OmegaConf.update(config, 'trainer.logger.0.id', wandb_id)
 
     # save files to run dir
-    OmegaConf.save(config, os.path.join(run_dir, 'raw_run_config.yaml'))
-    command = 'python train.py fit --config=raw_run_config.yaml'
+    config_path = os.path.join(run_dir, 'raw_run_config.yaml')
+    OmegaConf.save(config, config_path)
+    command = f'python train.py fit --config={config_path}'
     slurm_file_content = create_slurm_batch_file(command, **slurm_kw)
     job_file = os.path.join(run_dir, 'job_submit.sh')
     with open(job_file, 'w') as f:
