@@ -30,7 +30,7 @@ trainer:
         project: multimodal-noise
         name: retrieval-${path_seg:${trainer.default_root_dir},-1}
         id: "???"  # specify a run id
-        # dir: ${next_run:${trainer.default_root_dir},True}
+        dir: ${oc.env:WORKDIR}
         # save_dir: ${.dir}
         offline: false
 
