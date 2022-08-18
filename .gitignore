@@ -1,7 +1,6 @@
 # local logs
-logs
-lightning_logs
 *logs
+outside
 wandb
 
 # Byte-compiled / optimized / DLL files
