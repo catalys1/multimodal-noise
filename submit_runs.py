@@ -116,6 +116,7 @@ def setup_run_for_slurm(config, slurm_kw=None, log_dir=None):
     # create the run log directory
     run_dir = next_run_path(log_dir)
     os.makedirs(run_dir, exist_ok=False)  # should be a new run dir
+    os.makedirs(os.path.join(run_dir, 'slurm'))
 
     # update slurm and config with paths
     # log and checkpoint paths should be defined relative to trainer.default_root_dir using node interpolation
