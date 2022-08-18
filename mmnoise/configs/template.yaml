@@ -31,7 +31,7 @@ trainer:
         name: retrieval-${path_seg:${trainer.default_root_dir},-1}
         id: "???"  # specify a run id
         dir: ${oc.env:WORKDIR}
-        offline: false
+        offline: true
 
 model:
   image_encoder:

@@ -32,13 +32,14 @@ def generate_id(length: int = 8) -> str:
 
 def create_slurm_batch_file(
     command,
-    nodes=1,
-    gpus=1,
-    mem=40,
-    cpus_per_task=6,
-    time=360,
+    nodes = 1,
+    gpus = 1,
+    mem = 40,
+    cpus_per_task = 6,
+    time = 360,
     root_dir = os.environ['WORKDIR'],
-    output_dir='logs/slurm'
+    output_dir='logs/slurm',
+    name = None,
 ):
     '''Generate the contents of a bash file that can be used to submit a job to slurm through sbatch.
 
@@ -59,7 +60,7 @@ def create_slurm_batch_file(
     out_file = os.path.join(output_dir, 'slurm', 'slurm-%j.out')
     err_file = os.path.join(output_dir, 'slurm', 'slurm-%j.err')
 
-    sbatch_opts = (
+    sbatch_opts = [
         f'--nodes={nodes}',
         f'--gres=gpu:{gpus}',
         f'--ntasks-per-node={gpus}',
@@ -69,7 +70,9 @@ def create_slurm_batch_file(
         f'--chdir={root_dir}',
         f'--output={out_file}',
         f'--error={err_file}',
-    )
+    ]
+    if name:
+        sbatch_opts.append(f'--job-name={name}')
     sbatch_opts = '\n'.join(f'#SBATCH {x}' for x in sbatch_opts)
     sbatch = (
         '#!/bin/bash\n'
@@ -112,7 +115,10 @@ def setup_run_for_slurm(config, slurm_kw=None, log_dir=None):
     in the run directory.
     '''
     log_dir = log_dir or os.path.join(os.environ['WORKDIR'], 'logs')
-    slurm_kw = slurm_kw or slurm_defaults()
+    slurm_def = slurm_defaults()
+    if slurm_kw:
+        slurm_def.update(slurm_kw)
+    slurm_kw = slurm_def
 
     # create the run log directory
     run_dir = next_run_path(log_dir)
@@ -123,6 +129,7 @@ def setup_run_for_slurm(config, slurm_kw=None, log_dir=None):
     # log and checkpoint paths should be defined relative to trainer.default_root_dir using node interpolation
     slurm_kw['output_dir'] = run_dir
     slurm_kw['root_dir'] = os.environ['WORKDIR']
+    slurm_kw['name'] = run_dir.rstrip('/').rsplit('/', 1)[-1]
     config.trainer.default_root_dir = run_dir
 
     # synchronize config and slurm args
