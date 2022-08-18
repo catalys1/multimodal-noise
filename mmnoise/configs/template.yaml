@@ -49,10 +49,9 @@ model:
   tokenizer: bert-base-uncased
   embed_dim: 256
   criterion: CLIPLoss
-  lr: 0.0001
+  lr: 0.01
   lr_scale:
-    - scale: 100
+    - scale: 0.01
       params:
-        - image_projection
-        - text_projection
-
+        - image_encoder
+        - text_encoder
