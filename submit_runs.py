@@ -75,6 +75,7 @@ def create_slurm_batch_file(
         '#!/bin/bash\n'
         f'{sbatch_opts}\n\n'
         'source ~/.bashrc\n'
+        'source .env\n'
         f'conda activate {os.environ["CONDA_ENV_NAME"]}\n\n'
         f'srun {command}\n'
     )
