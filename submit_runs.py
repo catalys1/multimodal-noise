@@ -8,12 +8,6 @@ import shortuuid
 from mmnoise.utils import next_run_path
 
 
-# generate bash script that can be used to submit a job, either locally or through slurm
-# handle any setup of directories for logs etc
-# be able to directly launch the script (especially for launching multiple slurm jobs)
-# be able to easily modify arguments, and create multiple experiment configs
-# validate arguments and do some error checking to reduce errors before running
-
 # load custom environment variables defined in `.env`
 dotenv.load_dotenv('.env')
 
@@ -130,7 +124,7 @@ def setup_run_for_slurm(config, slurm_kw=None):
     slurm_kw = slurm_kw or slurm_defaults()
     sync_slurm_and_config(config, slurm_kw, 'trainer.num_nodes', 'nodes')
     sync_slurm_and_config(config, slurm_kw, 'trainer.devices', 'gpus')
-    sync_slurm_and_config(config, slurm_kw, 'data.num_workers', 'cpus_per_task')
+    sync_slurm_and_config(config, slurm_kw, 'data.init_args.num_workers', 'cpus_per_task')
     if slurm_kw['nodes'] > 1 or slurm_kw['gpus'] > 1:
         config.trainer.strategy = 'ddp'
 
@@ -148,7 +142,7 @@ def setup_run_for_slurm(config, slurm_kw=None):
     with open(os.path.join(run_dir, 'wandb_id'), 'w') as f:
         f.write(wandb_id)
 
-    # return path to slurm job file, the job can be launched by `sbatch job_submit.sh`
+    # return path to slurm job file
     return job_file
 
 
