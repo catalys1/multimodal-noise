@@ -12,7 +12,7 @@ __all__ = [
     'Flickr30kDatamodule',
 ]
 
-
+torchvision.transforms.ColorJitter()
 class Flickr30kDatamodule(LightningDataModule):
 
     dataset_class = torchvision.datasets.Flickr30k
@@ -24,6 +24,9 @@ class Flickr30kDatamodule(LightningDataModule):
         num_workers: int = 4,
         image_size: int = 224,
         normalization: Tuple[Tuple, Tuple] = ((0.485, 0.456, 0.406), (0.229, 0.225, 0.226)),
+        min_crop_area: float = 0.2,
+        hflips: bool = False,
+        color_jitter: Optional[Tuple[float]] = None,  # (brightness, contrast, saturation, hue)
     ):
         super().__init__()
         self.root = root
@@ -31,6 +34,9 @@ class Flickr30kDatamodule(LightningDataModule):
         self.num_workers = num_workers
         self.image_size = image_size
         self.normalization = normalization
+        self.min_crop_area = min_crop_area
+        self.hflips = hflips
+        self.color_jitter = color_jitter
 
     @staticmethod
     def _load_split(path):
@@ -54,10 +60,13 @@ class Flickr30kDatamodule(LightningDataModule):
             T.Normalize(*self.normalization),
         ])
         if stage == 'train':
-            return T.Compose([
-                T.RandomResizedCrop(self.image_size, (0.2, 1.0)),
-                tensorize,
-            ])
+            ts = [T.RandomResizedCrop(self.image_size, (self.min_crop_area, 1.0))]
+            if self.hflips:
+                ts.append(T.RandomHorizontalFlip(0.5))
+            if self.color_jitter is not None:
+                ts.append(T.ColorJitter(*self.color_jitter))
+            ts.append(tensorize)
+            return T.Compose(ts)
         else:
             s = int(8 / 7 * self.image_size)
             return T.Compose([
