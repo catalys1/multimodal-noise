@@ -1,0 +1,58 @@
+seed_everything: 1122334455
+trainer:
+  enable_checkpointing: true
+  default_root_dir: "???"  # set to root dir of run for logging and checkpoints
+  num_nodes: 1
+  devices: 1
+  enable_progress_bar: true
+  check_val_every_n_epoch: 1
+  max_epochs: 100
+  log_every_n_steps: 50
+  accelerator: gpu
+  strategy: null
+  precision: 32
+  num_sanity_val_steps: 0
+  resume_from_checkpoint: null
+  auto_lr_find: false
+  amp_backend: native
+  amp_level: null
+  # callbacks
+  callbacks:
+    - class_path: pytorch_lightning.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: ${trainer.default_root_dir}/checkpoints
+        filename: "{epoch}"
+    - class_path: pytorch_lightning.callbacks.LearningRateMonitor
+  # logging
+  logger:
+    - class_path: pytorch_lightning.loggers.WandbLogger
+      init_args:
+        project: multimodal-noise
+        name: retrieval-${path_seg:${trainer.default_root_dir},-1}
+        id: "???"  # specify a run id
+        # dir: ${next_run:${trainer.default_root_dir},True}
+        # save_dir: ${.dir}
+        offline: false
+
+model:
+  image_encoder:
+    name: resnet50
+    create_func: mmnoise.models.model_utils.vision_model_no_fc
+    load_func: mmnoise.models.model_utils.load_from_moco_pretrained
+    load_kw:
+      weights_path: ${oc.env:HOME}/store/remote_logs/manel/encoders/large_scale/dead_leaves-mixed/checkpoint_0199.pth.tar
+  text_encoder:
+    name: bert-base-uncased
+    create_func: mmnoise.models.model_utils.huggingface_model
+    create_kw:
+      pretrained: true
+  tokenizer: bert-base-uncased
+  embed_dim: 256
+  criterion: CLIPLoss
+  lr: 0.0001
+  lr_scale:
+    - scale: 100
+      params:
+        - image_projection
+        - text_projection
+
