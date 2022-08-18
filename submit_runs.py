@@ -62,8 +62,8 @@ def create_slurm_batch_file(
     sbatch_opts = (
         f'--nodes={nodes}',
         f'--gres=gpu:{gpus}',
-        f'--ntasks_per_node={gpus}',
-        f'--cpus_per_task={cpus_per_task}',
+        f'--ntasks-per-node={gpus}',
+        f'--cpus-per-task={cpus_per_task}',
         f'--mem={mem}G',
         f'-t {time}',
         f'--chdir={root_dir}',
