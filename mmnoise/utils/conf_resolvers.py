@@ -1,9 +1,10 @@
 '''Custom resolvers that can be used in configuration files through OmegaConf.
 '''
 import os
-import re
 
 from omegaconf import OmegaConf
+
+from . import next_run_path
 
 
 def register(cache=False):
@@ -17,13 +18,7 @@ def register(cache=False):
 def next_run(root, wandb=True):
     '''Determine the name of the next run and setup the run folder.
     '''
-    run = 0
-    if os.path.exists(root):
-        runs = [x for x in os.listdir(root) if re.match(r'run-\d+', x)]
-        if len(runs) > 0:
-            runs = sorted(int(x.split('-')[-1]) for x in runs)
-            run = runs[-1] + 1
-    path = os.path.join(root, f'run-{run}')
+    path = next_run_path(root)
     os.makedirs(path)
     if wandb:
         os.makedirs(os.path.join(path, 'wandb'))
@@ -36,3 +31,11 @@ def path_seg(path, seg_idx=-1):
     '''
     segments = str(path).split('/')
     return segments[seg_idx]
+
+
+@register(cache=False)
+def linear_scale_lr(lr, bs, base_bs):
+    '''Compute a linearly scaled learning rate based on the ratio of the batch size to
+    a base batch size.
+    '''
+    return lr * bs / base_bs
