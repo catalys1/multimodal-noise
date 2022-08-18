@@ -132,7 +132,7 @@ def setup_run_for_slurm(config, slurm_kw=None, log_dir=None):
 
     # inject a wandb run id
     wandb_id = generate_id()
-    OmegaConf.update(config, 'trainer.logger.0.id', wandb_id)
+    OmegaConf.update(config, 'trainer.logger.0.init_args.id', wandb_id)
 
     # save files to run dir
     config_path = os.path.join(run_dir, 'raw_run_config.yaml')
