@@ -45,6 +45,7 @@ class RetrievalModule(pl.LightningModule):
         lrsched_args: Optional[List] = None,
     ):
         super().__init__()
+        self.save_hyperparameters()
 
         self.image_encoder = get_model(image_encoder, vision=True)
         self.text_encoder = get_model(text_encoder, vision=False)
@@ -140,10 +141,15 @@ class RetrievalModule(pl.LightningModule):
 
         preds = img_feat @ text_feat.T
         targets = torch.arange(img_feat.shape[0], device=self.device)[:,None].eq(idx)
-        recall_i2t = compute_recall(preds, targets, k=5)
-        recall_t2i = compute_recall(preds.T, targets.T, k=5)
-        recall = 0.5 * (recall_i2t + recall_t2i)
 
+        ks = [1,5,10]
+        recall_i2t = compute_recall(preds, targets, k=ks)
+        recall_t2i = compute_recall(preds.T, targets.T, k=ks)
+        for k, vi2t, vt2i in zip(ks, recall_i2t, recall_t2i):
+            self.log(f'val/recall@{k}-i2t', vi2t, on_epoch=True, on_step=False, prog_bar=False)
+            self.log(f'val/recall@{k}-t2i', vt2i, on_epoch=True, on_step=False, prog_bar=False)
+
+        recall = 0.5 * (recall_i2t[1] + recall_t2i[1])
         self.log('val/recall@5', recall, on_epoch=True, on_step=False, prog_bar=True)
 
     def configure_optimizers(self):
@@ -174,7 +180,7 @@ class RetrievalModule(pl.LightningModule):
             self.opt_args['init_args']['lr'] = self.lr
             optimizer = pl.cli.instantiate_class(param_groups, self.opt_args)
         else:
-            optimizer = torch.optim.SGD(param_groups, lr=self.lr, momentum=True)
+            optimizer = torch.optim.SGD(param_groups, lr=self.lr, momentum=0.9)
 
         # create a specified or default learning rate scheduler
         if self.lrsched_args is not None:
@@ -197,8 +203,17 @@ class RetrievalModule(pl.LightningModule):
 
 
 def compute_recall(preds, targets, k):
-    relevant = targets.gather(1, preds.topk(k, dim=1, largest=True).indices).sum(dim=1)
+    if isinstance(k, int):
+        k = [k]
+    maxk = max(k)
+    ranked = preds.topk(maxk, dim=1, largest=True, sorted=True).indices
     count = targets.sum(1)
     count[count == 0] = 1.0
-    recall = torch.mean(relevant / count)
-    return recall
+    recalls = []
+    for kk in k:
+        relevant = targets.gather(1, ranked[:, :kk]).sum(dim=1)
+        recall = torch.mean(relevant / count)
+        recalls.append(recall)
+    if len(recalls) == 1:
+        recalls = recalls[0]
+    return recalls
