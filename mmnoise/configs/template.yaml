@@ -31,7 +31,6 @@ trainer:
         name: retrieval-${path_seg:${trainer.default_root_dir},-1}
         id: "???"  # specify a run id
         dir: ${oc.env:WORKDIR}
-        # save_dir: ${.dir}
         offline: false
 
 model:
