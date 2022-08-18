@@ -72,7 +72,7 @@ def create_slurm_batch_file(
     )
     sbatch_opts = '\n'.join(f'#SBATCH {x}' for x in sbatch_opts)
     sbatch = (
-        '!#/bin/bash\n'
+        '#!/bin/bash\n'
         f'{sbatch_opts}\n\n'
         'source ~/.bashrc\n'
         'conda activate $CONDA_ENV_NAME\n\n'
