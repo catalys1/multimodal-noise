@@ -108,11 +108,11 @@ class RetrievalModule(pl.LightningModule):
 
         return {'loss': loss}
 
-    def on_after_backward(self):
-        img_grad = self.image_projection.weight.grad.abs().mean()
-        text_grad = self.text_projection.weight.grad.abs().mean()
-        self.log('grads/img-proj-w', img_grad, on_step=True)
-        self.log('grads/text-proj-w', text_grad, on_step=True)
+    # def on_after_backward(self):
+    #     img_grad = self.image_projection.weight.grad.abs().mean()
+    #     text_grad = self.text_projection.weight.grad.abs().mean()
+    #     self.log('grads/img-proj-w', img_grad, on_step=True)
+    #     self.log('grads/text-proj-w', text_grad, on_step=True)
 
     def validation_step(self, batch, *args, **kwargs):
         imgs, text = batch['images'], batch['text']
@@ -207,12 +207,13 @@ def compute_recall(preds, targets, k):
         k = [k]
     maxk = max(k)
     ranked = preds.topk(maxk, dim=1, largest=True, sorted=True).indices
-    count = targets.sum(1)
-    count[count == 0] = 1.0
+    # count = targets.sum(1)
+    # count[count == 0] = 1.0
     recalls = []
     for kk in k:
         relevant = targets.gather(1, ranked[:, :kk]).sum(dim=1)
-        recall = torch.mean(relevant / count)
+        recall = relevant.gt(0).float().mean()
+        #recall = torch.mean(relevant / count)
         recalls.append(recall)
     if len(recalls) == 1:
         recalls = recalls[0]
