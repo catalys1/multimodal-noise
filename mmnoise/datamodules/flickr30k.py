@@ -24,7 +24,7 @@ class Flickr30kDatamodule(LightningDataModule):
         num_workers: int = 4,
         image_size: int = 224,
         normalization: Tuple[Tuple, Tuple] = ((0.485, 0.456, 0.406), (0.229, 0.225, 0.226)),
-        min_crop_area: float = 0.2,
+        crop_area: Tuple = (0.2, 1.0),
         hflips: bool = False,
         color_jitter: Optional[Tuple] = None,  # (brightness, contrast, saturation, hue)
     ):
@@ -34,7 +34,7 @@ class Flickr30kDatamodule(LightningDataModule):
         self.num_workers = num_workers
         self.image_size = image_size
         self.normalization = normalization
-        self.min_crop_area = min_crop_area
+        self.crop_area = crop_area
         self.hflips = hflips
         self.color_jitter = color_jitter
 
@@ -60,7 +60,7 @@ class Flickr30kDatamodule(LightningDataModule):
             T.Normalize(*self.normalization),
         ])
         if stage == 'train':
-            ts = [T.RandomResizedCrop(self.image_size, (self.min_crop_area, 1.0))]
+            ts = [T.RandomResizedCrop(self.image_size, self.crop_area)]
             if self.hflips:
                 ts.append(T.RandomHorizontalFlip(0.5))
             if self.color_jitter is not None:
