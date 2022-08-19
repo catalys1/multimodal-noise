@@ -167,7 +167,7 @@ class RetrievalModule(pl.LightningModule):
                     if kk.startswith(k):
                         params.append(named_params.pop(kk))
             if group['scale'] > 0:
-                pg = {'params': [], 'lr': self.lr * group['scale']}
+                pg = {'params': params, 'lr': self.lr * group['scale']}
                 param_groups.append(pg)
             else:
                 for p in params: p.requires_grad_(False)
