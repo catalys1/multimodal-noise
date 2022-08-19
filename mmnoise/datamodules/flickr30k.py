@@ -26,7 +26,7 @@ class Flickr30kDatamodule(LightningDataModule):
         normalization: Tuple[Tuple, Tuple] = ((0.485, 0.456, 0.406), (0.229, 0.225, 0.226)),
         min_crop_area: float = 0.2,
         hflips: bool = False,
-        color_jitter: Optional[Tuple[float]] = None,  # (brightness, contrast, saturation, hue)
+        color_jitter: Optional[Tuple] = None,  # (brightness, contrast, saturation, hue)
     ):
         super().__init__()
         self.root = root
