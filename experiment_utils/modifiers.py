@@ -12,31 +12,40 @@ valid_vis_weights = defaultdict(
     'resnet50': {
         'imagenet': {'style': 'IMAGENET1K_V2'},
         'none': {'style': None},
+        'places365': {
+            'style': 'basic',
+            'path': 'outside/encoders/places365/resnet50_places365.pth.tar',
+        },
         'dead_leaves-mixed': {
-            'style': 'coco',
+            'style': 'moco',
             'path': 'outside/encoders/dead_leaves-mixed/checkpoint_0199.pth.tar',
         },
         'feature_vis-dead_leaves': {
-            'style': 'coco',
+            'style': 'moco',
             'path': 'outside/encoders/feature_vis-dead_leaves/checkpoint_0199.pth.tar',
         },
         'mixed-4': {
-            'style': 'coco',
+            'style': 'moco',
             'path': 'outside/encoders/mixed-4/checkpoint_0799.pth.tar',
         },
         'stat-spectrum_color_wmm': {
-            'style': 'coco',
+            'style': 'moco',
             'path': 'outside/encoders/stat-spectrum_color_wmm/checkpoint_0199.pth.tar',
         },
         'stylegan-oriented': {
-            'style': 'coco',
+            'style': 'moco',
             'path': 'outside/encoders/stylegan-oriented/checkpoint_0199.pth.tar',
         },
+        'shaders21k': {
+            'style': 'moco',
+            'path': 'outside/encoders/shaders21k/checkpoint_0199.pth.tar',
+        }
     },
 })
 
 vis_weight_loaders = {
-    'coco': 'mmnoise.models.model_utils.load_from_coco_pretrained',
+    'moco': 'mmnoise.models.model_utils.load_from_moco_pretrained',
+    'basic': 'mmnoise.models.model_utils.load_from_basic_checkpoint',
 }
 
 valid_text_weights = defaultdict(
@@ -66,9 +75,13 @@ def set_model(
     vision_weights='imagenet',
     text_name='bert-base-uncased',
     text_weights='pretrained',
+    freeze_vision=False,
+    freeze_text=False,
+    ft_lr_scale=0.01,
 ):
     # configure the vision encoder
-    assert vision_weights in valid_vis_weights[vision_name]
+    if vision_weights not in valid_vis_weights[vision_name]:
+        raise RuntimeError(f'vision_weights {vision_weights} is unknown')
     config.model.image_encoder.name = vision_name
     weight_style = valid_vis_weights[vision_name][vision_weights]['style']
     if vision_weights in ('imagenet', 'none'):
@@ -96,31 +109,37 @@ def set_model(
         raise NotImplementedError()
 
     # configure parameter groups
-    groups = [
-        {
+    groups = [{
             'scale': 1.0,
             'params': [
                 'image_projection',
                 'text_projection',
                 'temperature',
             ]
-        },
-        {
-            'scale': 0.01,
+        }, {
+            'scale': ft_lr_scale,
+            'params': []
+        }, {
+            'scale': 0.0,
             'params': []
         }
     ]
-    if vision_weights == 'none':
+    if freeze_vision:
+        groups[2]['params'].append('image_encoder')
+    elif vision_weights == 'none':
         groups[0]['params'].append('image_encoder')
     else:
         groups[1]['params'].append('image_encoder')
 
-    if text_weights == 'none':
+    if freeze_text:
+        groups[2]['params'].append('text_encoder')
+    elif text_weights == 'none':
         groups[0]['params'].append('text_encoder')
     else:
         groups[1]['params'].append('text_encoder')
 
-    if len(groups[1]['params']) == 0:
-        groups.pop(1)
+    for i in range(len(groups) - 1, -1, -1):
+        if len(groups[i]['params']) == 0:
+            groups.pop(i)
     
     config.model.lr_scale = groups
