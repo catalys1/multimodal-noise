@@ -62,6 +62,24 @@ def huggingface_model(name, *, pretrained=False, **kwargs):
     return model
 
 
+def mlp_model(name, in_dim, layer_dims):
+    from mmnoise.models.components.mlp import MLP
+    model = MLP(in_dim, layer_dims)
+    return model
+
+
+def load_from_basic_checkpoint(net, weights_path):
+    import torch
+    state = torch.load(weights_path, map_location='cpu')['state_dict']
+    for k in list(state.keys()):
+        if k.startswith('module.'):
+            state[k[len('module.'):]] = state[k]
+            del state[k]
+    keys = net.load_state_dict(state, strict=False)
+    if len(keys.unexpected_keys) > 2 or len(keys.missing_keys) > 2:
+        raise RuntimeError(f'Error loading model weights:\n{keys}')
+
+
 def load_from_moco_pretrained(net, weights_path):
     import torch
     state = torch.load(weights_path, map_location='cpu')['state_dict']
@@ -73,6 +91,20 @@ def load_from_moco_pretrained(net, weights_path):
         # delete renamed or unused k
         del state[k]
     keys = net.load_state_dict(state, strict=False)
-    assert len(keys.unexpected_keys) == 0
-    assert len(keys.missing_keys) <= 2
+    if len(keys.unexpected_keys) > 2 or len(keys.missing_keys) > 2:
+        raise RuntimeError(f'Error loading model weights:\n{keys}')
     
+
+def get_output_dim(model):
+    from torchvision import models
+    import transformers
+    from mmnoise.models.components import mlp
+    if isinstance(model, models.ResNet):
+        dim = list(model.parameters())[-1].shape[-1] # probably doesn't work in all cases
+    elif isinstance(model, transformers.PreTrainedModel):
+        dim = model.config.hidden_size
+    elif isinstance(model, mlp.MLP):
+        dim = model.layers[-4].out_features
+    else:
+        raise ValueError(f'Unknown model type {type(model)}')
+    return dim
