@@ -56,8 +56,8 @@ class RetrievalModule(pl.LightningModule):
         self.tokenizer = tokenizer
 
         # Pojection layers for text and images
-        img_dim = list(self.image_encoder.parameters())[-1].shape[-1] # probably doesn't work in all cases
-        text_dim = self.text_encoder.config.hidden_size
+        img_dim = model_utils.get_output_dim(self.image_encoder)
+        text_dim = model_utils.get_output_dim(self.text_encoder)
         self.image_projection = torch.nn.Linear(img_dim, embed_dim)
         self.text_projection = torch.nn.Linear(text_dim, embed_dim)
 
@@ -75,12 +75,15 @@ class RetrievalModule(pl.LightningModule):
     def forward(self, imgs, text):
         imgs_feat = self.image_encoder(imgs)
 
-        text = self.tokenizer(text, padding='longest', truncation=True, max_length=30)
-        text_in = torch.as_tensor(text.input_ids, device=self.device)
-        att_mask = torch.as_tensor(text.attention_mask, device=self.device)
-        text_out = self.text_encoder(text_in, attention_mask=att_mask)
-        # only take the first token ([CLS]). Not sure if this is the best approach.
-        text_feat = text_out.last_hidden_state[:, 0, :]
+        if isinstance(text[0], str):
+            text = self.tokenizer(text, padding='longest', truncation=True, max_length=30)
+            text_in = torch.as_tensor(text.input_ids, device=self.device)
+            att_mask = torch.as_tensor(text.attention_mask, device=self.device)
+            text_out = self.text_encoder(text_in, attention_mask=att_mask)
+            # only take the first token ([CLS]). Not sure if this is the best approach.
+            text_feat = text_out.last_hidden_state[:, 0, :]
+        else:
+            text_feat = self.text_encoder(text)
 
         return imgs_feat, text_feat
 
@@ -107,12 +110,6 @@ class RetrievalModule(pl.LightningModule):
             self.log('logit_gap', gap, on_step=True)
 
         return {'loss': loss}
-
-    # def on_after_backward(self):
-    #     img_grad = self.image_projection.weight.grad.abs().mean()
-    #     text_grad = self.text_projection.weight.grad.abs().mean()
-    #     self.log('grads/img-proj-w', img_grad, on_step=True)
-    #     self.log('grads/text-proj-w', text_grad, on_step=True)
 
     def validation_step(self, batch, *args, **kwargs):
         imgs, text = batch['images'], batch['text']
@@ -141,6 +138,10 @@ class RetrievalModule(pl.LightningModule):
 
         preds = img_feat @ text_feat.T
         targets = torch.arange(img_feat.shape[0], device=self.device)[:,None].eq(idx)
+
+        if self.store_val_predictions:
+            self.val_predictions = preds
+            self.val_targets = targets
 
         ks = [1,5,10]
         recall_i2t = compute_recall(preds, targets, k=ks)
@@ -207,13 +208,10 @@ def compute_recall(preds, targets, k):
         k = [k]
     maxk = max(k)
     ranked = preds.topk(maxk, dim=1, largest=True, sorted=True).indices
-    # count = targets.sum(1)
-    # count[count == 0] = 1.0
     recalls = []
     for kk in k:
         relevant = targets.gather(1, ranked[:, :kk]).sum(dim=1)
         recall = relevant.gt(0).float().mean()
-        #recall = torch.mean(relevant / count)
         recalls.append(recall)
     if len(recalls) == 1:
         recalls = recalls[0]
