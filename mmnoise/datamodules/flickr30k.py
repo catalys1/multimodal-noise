@@ -3,7 +3,10 @@ import os
 import random
 from typing import Callable, Optional, Tuple
 
+import numpy as np
+from PIL import Image
 from pytorch_lightning.core.datamodule import LightningDataModule
+import torch
 from torch.utils.data import DataLoader, default_collate
 import torchvision
 
@@ -12,7 +15,44 @@ __all__ = [
     'Flickr30kDatamodule',
 ]
 
-torchvision.transforms.ColorJitter()
+
+def sample_caption(caption_list):
+    '''Randomly sample a single caption from a list of captions.
+    '''
+    idx = random.randrange(0, len(caption_list))
+    return caption_list[idx]
+
+
+def image_text_collate(batch):
+    '''Batch images and text, and create an index mapping each text item to an image index.
+    '''
+    imgs = default_collate([x[0] for x in batch])
+    text = [x[1] for x in batch]
+    # there could be a single str or a list of str for each image. in case of single str, convert to list
+    if isinstance(text[0], str):
+        text = [[x] for x in text]
+    # idx associates each item in text with a corresponding item in imgs
+    idx = default_collate(list(chain(*list([i]*len(x) for i, x in enumerate(text)))))
+    # flatten text into a single list of str
+    text = [y for x in text for y in x]
+    return {'images': imgs, 'text': text, 'index': idx}
+
+
+def image_embedding_collate(batch):
+    '''Batch images and text embeddings, and create an index mapping each text item to an image index.
+    '''
+    imgs = default_collate([x[0] for x in batch])
+    embed = [x[1] for x in batch]
+    # there could be a single str or a list of str for each image. in case of single str, convert to list
+    if len(embed[0].shape) == 1:
+        embed = [x.reshape(1, -1) for x in embed]
+    # idx associates each item in text with a corresponding item in imgs
+    idx = default_collate(list(chain(*list([i]*len(x) for i, x in enumerate(embed)))))
+    # flatten embeds
+    embed = torch.cat([torch.as_tensor(x) for x in embed], 0)
+    return {'images': imgs, 'text': embed, 'index': idx}
+
+
 class Flickr30kDatamodule(LightningDataModule):
 
     dataset_class = torchvision.datasets.Flickr30k
@@ -37,6 +77,8 @@ class Flickr30kDatamodule(LightningDataModule):
         self.crop_area = crop_area
         self.hflips = hflips
         self.color_jitter = color_jitter
+
+        self.ann_file = os.path.join(self.root, 'annotations.txt')
 
     @staticmethod
     def _load_split(path):
@@ -77,61 +119,107 @@ class Flickr30kDatamodule(LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         root = os.path.join(self.root, 'flickr30k-images')
-        ann_file = os.path.join(self.root, 'annotations.txt')
+        ann_file = self.ann_file
         if stage == 'fit':
             # training data
             train_split = os.path.join(self.root, 'flickr30k_entities', 'train.txt')
             transform = self.transforms(stage='train')
             train_data = self.dataset_class(root, ann_file, transform, sample_caption)
             self.train_data = self.split_data(train_data, train_split)
+        if stage in ('fit', 'validate'):
             # validation data
             val_split = os.path.join(self.root, 'flickr30k_entities', 'val.txt')
             transform = self.transforms(stage='val')
             val_data = self.dataset_class(root, ann_file, transform)
             self.val_data = self.split_data(val_data, val_split)
-        else:
+        if stage == 'test':
             # test data
             test_split = os.path.join(self.root, 'flickr30k_entities', 'test.txt')
             transform = self.transforms(stage='test')
             test_data = self.dataset_class(root, ann_file, transform)
             self.test_data = self.split_data(test_data, test_split)
 
+    @property
+    def collate_fn(self):
+        return image_text_collate
+
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
             self.train_data, self.batch_size, num_workers=self.num_workers,
-            pin_memory=True, drop_last=True, shuffle=True, collate_fn=image_text_collate,
+            pin_memory=True, drop_last=True, shuffle=True, collate_fn=self.collate_fn,
         )
 
     def val_dataloader(self) -> DataLoader:
         return DataLoader(
             self.val_data, self.batch_size, num_workers=self.num_workers,
-            drop_last=False, pin_memory=True, shuffle=False, collate_fn=image_text_collate,
+            drop_last=False, pin_memory=True, shuffle=False, collate_fn=self.collate_fn,
         )
 
     def test_dataloader(self) -> DataLoader:
         return DataLoader(
             self.test_data, self.batch_size, num_workers=self.num_workers,
-            drop_last=False, pin_memory=True, shuffle=False, collate_fn=image_text_collate,
+            drop_last=False, pin_memory=True, shuffle=False, collate_fn=self.collate_fn,
         )
 
 
-def sample_caption(caption_list):
-    '''Randomly sample a single caption from a list of captions.
-    '''
-    idx = random.randrange(0, len(caption_list))
-    return caption_list[idx]
+#############################################
+# Flickr30k with caption embeddings
+#############################################
+class Flickr30kEmbeddingDataset(torchvision.datasets.VisionDataset):
+    def __init__(self, root, ann_file, transform=None, target_transform=None):
+        super().__init__(root, transform=transform, target_transform=target_transform)
+        self.ann_file = os.path.expanduser(ann_file)
+
+        self.annotations = torch.load(self.ann_file)
+        self.stats = self.annotations.pop('stats')
+        self.ids = sorted(self.annotations.keys())
+
+    def __getitem__(self, index):
+        img_id = self.ids[index]
+
+        filename = os.path.join(self.root, img_id)
+        img = Image.open(filename).convert('RGB')
+        if self.transform is not None:
+            img = self.transform(img)
+
+        target = self.annotations[img_id]
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+        target = target.float().sub(self.stats['mean']).div_(self.stats['stdev'])
+
+        return img, target
+
+    def __len__(self):
+        return len(self.ids)
 
 
-def image_text_collate(batch):
-    '''Batch images and text, and create an index mapping each text item to an image index.
-    '''
-    imgs = default_collate([x[0] for x in batch])
-    text = [x[1] for x in batch]
-    # there could be a single str or a list of str for each image. in case of single str, convert to list
-    if isinstance(text[0], str):
-        text = [[x] for x in text]
-    # idx associates each item in text with a corresponding item in imgs
-    idx = default_collate(list(chain(*list([i]*len(x) for i, x in enumerate(text)))))
-    # flatten text into a single list of str
-    text = [y for x in text for y in x]
-    return {'images': imgs, 'text': text, 'index': idx}
+class Flickr30kEmbeddedDatamodule(Flickr30kDatamodule):
+
+    dataset_class = Flickr30kEmbeddingDataset
+
+    def __init__(
+        self,
+        root: str,
+        batch_size: int = 16,
+        num_workers: int = 4,
+        image_size: int = 224,
+        normalization: Tuple[Tuple, Tuple] = ((0.485, 0.456, 0.406), (0.229, 0.225, 0.226)),
+        crop_area: Tuple = (0.2, 1.0),
+        hflips: bool = False,
+        color_jitter: Optional[Tuple] = None,  # (brightness, contrast, saturation, hue)
+    ):
+        super().__init__(
+            root = root,
+            batch_size = batch_size,
+            num_workers = num_workers,
+            image_size = image_size,
+            normalization = normalization,
+            crop_area = crop_area,
+            hflips = hflips,
+            color_jitter = color_jitter,
+        )
+        self.ann_file = os.path.join(self.root, 'caption_embeddings.pth')
+    
+    @property
+    def collate_fn(self):
+        return image_embedding_collate
