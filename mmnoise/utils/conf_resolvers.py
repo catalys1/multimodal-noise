@@ -34,8 +34,9 @@ def path_seg(path, seg_idx=-1):
 
 
 @register(cache=False)
-def linear_scale_lr(lr, bs, base_bs):
+def linear_scale_lr(lr, bs, base_bs, nodes=1, gpus_per_node=1):
     '''Compute a linearly scaled learning rate based on the ratio of the batch size to
-    a base batch size.
+    a base batch size. Batch size is given in terms of a single GPU, so scaling needs to
+    take into consideration the total number of distributed processes.
     '''
-    return lr * bs / base_bs
+    return (lr * bs / base_bs) * nodes * gpus_per_node
