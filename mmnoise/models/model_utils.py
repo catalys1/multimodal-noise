@@ -1,5 +1,7 @@
 from importlib import import_module
 
+from . import defs
+
 
 def identity(input, *args, **kwargs):
     return input
@@ -55,8 +57,15 @@ def vision_model_no_fc(name, *, fc_key='fc', **kwargs):
 def huggingface_model(name, *, pretrained=False, **kwargs):
     import transformers
     if pretrained:
+        if 'pretrained_model_name_or_path' in kwargs:
+            name = kwargs.pop('pretrained_model_name_or_path')
         model = transformers.AutoModel.from_pretrained(name, **kwargs)
     else:
+        n = name.replace('-', '_')
+        if hasattr(defs, n):
+            temp = kwargs
+            kwargs = getattr(defs, n)()
+            kwargs.update(temp)
         config = transformers.AutoConfig.for_model(name.split('-')[0], **kwargs)
         model = transformers.AutoModel.from_config(config)
     return model
@@ -68,12 +77,14 @@ def mlp_model(name, in_dim, layer_dims):
     return model
 
 
-def load_from_basic_checkpoint(net, weights_path):
+def load_from_basic_checkpoint(net, weights_path, prefix='module.'):
     import torch
-    state = torch.load(weights_path, map_location='cpu')['state_dict']
+    state = torch.load(weights_path, map_location='cpu')
+    state_key = 'state_dict' if hasattr(state, 'state_dict') else 'model'
+    state = state[state_key]
     for k in list(state.keys()):
-        if k.startswith('module.'):
-            state[k[len('module.'):]] = state[k]
+        if k.startswith(prefix):
+            state[k[len(prefix):]] = state[k]
             del state[k]
     keys = net.load_state_dict(state, strict=False)
     if len(keys.unexpected_keys) > 2 or len(keys.missing_keys) > 2:
