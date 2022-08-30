@@ -53,9 +53,17 @@ valid_text_weights = defaultdict(
         'pretrained': {'style': True},
         'none': {'style': False},
     }, {
+    'bert-tiny': {
+        'none': {'style': False},
+        'shaders21k-code': {
+            'path': 'outside/encoders/bert-shaders/bert-tiny/',
+        },
+    },
+})
 
-    }
-)
+text_weight_loaders = {
+    'basic': 'mmnoise.models.model_utils.load_from_basic_checkpoint',
+}
 
 
 def remove(conf, path):
@@ -100,13 +108,23 @@ def set_model(
     # configure the text encoder
     assert text_weights in valid_text_weights[text_name]   
     config.model.text_encoder.name = text_name
-    weights_style = valid_text_weights[text_name][text_weights]['style']
-    if text_weights in ('pretrained', 'none'):
-        config.model.text_encoder.create_kw = {
-            'pretrained': weights_style
-        }
-    else:
-        raise NotImplementedError()
+    # weight_style = valid_text_weights[text_name][text_weights]['style']
+    # if text_weights in ('pretrained', 'none'):
+    config.model.text_encoder.create_kw = {
+        'pretrained': False
+    }
+    if text_weights != 'none':
+        config.model.text_encoder.create_kw.pretrained = True
+        if text_weights != 'pretrained':
+            config.model.text_encoder.create_kw.pretrained_model_name_or_path = (
+                valid_text_weights[text_name][text_weights]['path']
+            )
+    # else:
+    #     config.model.text_encoder.load_func = text_weight_loaders[weight_style]
+    #     config.model.text_encoder.load_kw = {
+    #         'weights_path': valid_text_weights[text_name][text_weights]['path']
+    #     }
+    #     remove(config, 'model.text_encoder.create_kw.pretrained')
 
     # configure parameter groups
     groups = [{
