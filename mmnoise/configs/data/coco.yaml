@@ -1,0 +1,5 @@
+class_path: mmnoise.datamodules.COCODatamodule
+init_args:
+  root: "${oc.env:DATADIR}/coco"
+  batch_size: 96
+  num_workers: 6
