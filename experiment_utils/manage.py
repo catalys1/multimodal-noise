@@ -6,6 +6,15 @@ import re
 import subprocess
 
 
+__all__ = [
+    'extract_wandb_metrics',
+    'get_wandb_run_from_id',
+    'process_run_ids',
+    'purge_runs',
+    'sync_wandb_offline_runs',
+]
+
+
 def extract_wandb_metrics(logfile):
     '''Returns a list of dictionaries containing the logged metrics stored in the wandb binary
     log file. Each dict contains the metric values logged at a given trainer/glboal_step.

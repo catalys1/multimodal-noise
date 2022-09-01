@@ -1,7 +1,14 @@
 from collections import defaultdict
-from email.policy import default
 
 from omegaconf import OmegaConf
+
+from .config_utils import remove
+
+
+__all__ = [
+    'remove',
+    'set_model',
+]
 
 
 valid_vis_weights = defaultdict(
@@ -64,17 +71,6 @@ valid_text_weights = defaultdict(
 text_weight_loaders = {
     'basic': 'mmnoise.models.model_utils.load_from_basic_checkpoint',
 }
-
-
-def remove(conf, path):
-    if '.' in path:
-        p, x = path.rsplit('.', 1)
-        p = OmegaConf.select(conf, p)
-        if p and x in p:
-            delattr(p, x)
-    else:
-        if path in conf:
-            delattr(conf, path)
 
 
 def set_model(
