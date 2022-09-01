@@ -10,12 +10,14 @@ from mmnoise.models import model_utils
 from mmnoise.models.components import TemperatureScale
 
 
-def default_config(name, vision=True):
+def default_config(name, type='vision'):
     config = dict(name=name)
-    if vision:
+    if type == 'vision':
         config['create_func'] = model_utils.vision_model_no_fc
-    else:
+    elif type == 'text':
         config['create_func'] = model_utils.huggingface_model
+    elif type == 'tokenizer':
+        config['create_func'] = transformers.AutoTokenizer.from_pretrained
     return config
 
 
@@ -23,9 +25,19 @@ def get_model(model_data, vision=True):
     if isinstance(model_data, torch.nn.Module):
         return model_data
     elif isinstance(model_data, str):
-        config = default_config(model_data, vision)
+        config = default_config(model_data, 'vision' if vision else 'text')
     elif isinstance(model_data, dict):
         config = model_data
+    return model_utils.create_model_from_config(config)
+
+
+def get_tokenizer(tok_data):
+    if isinstance(tok_data, transformers.PreTrainedTokenizer):
+        return tok_data
+    elif isinstance(tok_data, str):
+        config = default_config(tok_data, 'tokenizer')
+    elif isinstance(tok_data, dict):
+        config = tok_data
     return model_utils.create_model_from_config(config)
     
 
@@ -49,11 +61,7 @@ class RetrievalModule(pl.LightningModule):
 
         self.image_encoder = get_model(image_encoder, vision=True)
         self.text_encoder = get_model(text_encoder, vision=False)
-
-        # TODO: still need to modularize tokenizer creation
-        if isinstance(tokenizer, str):
-            tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer)
-        self.tokenizer = tokenizer
+        self.tokenizer = get_tokenizer(tokenizer)
 
         # Pojection layers for text and images
         img_dim = model_utils.get_output_dim(self.image_encoder)
@@ -139,7 +147,7 @@ class RetrievalModule(pl.LightningModule):
         preds = img_feat @ text_feat.T
         targets = torch.arange(img_feat.shape[0], device=self.device)[:,None].eq(idx)
 
-        if self.store_val_predictions:
+        if getattr(self, 'store_val_predictions', False):
             self.val_predictions = preds
             self.val_targets = targets
 

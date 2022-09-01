@@ -71,6 +71,14 @@ def huggingface_model(name, *, pretrained=False, **kwargs):
     return model
 
 
+def bert_tokenizer_for_code(name, **kwargs):
+    import transformers
+    tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-cased")
+    tokenizer.add_tokens(["[/n]"])
+    tokenizer.add_tokens(["[/t]"])
+    return tokenizer
+
+
 def mlp_model(name, in_dim, layer_dims):
     from mmnoise.models.components.mlp import MLP
     model = MLP(in_dim, layer_dims)
