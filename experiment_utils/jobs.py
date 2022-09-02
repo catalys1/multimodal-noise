@@ -8,6 +8,18 @@ import shortuuid
 from mmnoise.utils import next_run_path
 
 
+__all__ = [
+    'slurm_defaults',
+    'generate_id',
+    'create_slurm_batch_file',
+    'combine_from_files',
+    'sync_slurm_and_config',
+    'setup_run_for_slurm',
+    'setup_run_for_local',
+    'launch_slurm_jobs',
+]
+
+
 # load custom environment variables defined in `.env`
 dotenv.load_dotenv('.env')
 
