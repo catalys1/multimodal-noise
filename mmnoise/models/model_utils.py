@@ -1,4 +1,5 @@
 from importlib import import_module
+import os
 
 from . import defs
 
@@ -68,6 +69,42 @@ def huggingface_model(name, *, pretrained=False, **kwargs):
             kwargs.update(temp)
         config = transformers.AutoConfig.for_model(name.split('-')[0], **kwargs)
         model = transformers.AutoModel.from_config(config)
+    return model
+
+
+def huggingface_model_replace_embeddings(name, *, pretrained=False, config_or_name=None, **kwargs):
+    import torch
+    import transformers
+
+    model = huggingface_model(name, pretrained=pretrained, **kwargs)
+
+    # Adapted from transformers.models.bert.modeling_bert.BertPreTrainedModel._init_weights
+    def _init_weights(module):
+        """Initialize the weights"""
+        if isinstance(module, torch.nn.Linear):
+            module.weight.data.normal_(mean=0.0, std=model.config.initializer_range)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, torch.nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=model.config.initializer_range)
+            if module.padding_idx is not None:
+                module.weight.data[module.padding_idx].zero_()
+        elif isinstance(module, torch.nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+
+    # If no config provided, just randomly re-initialize the embeddings
+    if config_or_name is not None:
+        if isinstance(config_or_name, str):
+            if os.path.exists(config_or_name):
+                config = transformers.AutoConfig.from_pretrained(config_or_name)
+            else:
+                config = transformers.AutoConfig.for_model(config_or_name.split('-')[0])
+        else:
+            config = config_or_name
+        model.embeddings = model.embeddings.__class__(config)
+    model.embeddings.apply(_init_weights)
+
     return model
 
 
