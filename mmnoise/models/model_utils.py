@@ -88,7 +88,7 @@ def mlp_model(name, in_dim, layer_dims):
 def load_from_basic_checkpoint(net, weights_path, prefix='module.'):
     import torch
     state = torch.load(weights_path, map_location='cpu')
-    state_key = 'state_dict' if hasattr(state, 'state_dict') else 'model'
+    state_key = 'state_dict' if 'state_dict' in state else 'model'
     state = state[state_key]
     for k in list(state.keys()):
         if k.startswith(prefix):
