@@ -20,8 +20,8 @@ __all__ = [
 ]
 
 
-# load custom environment variables defined in `.env`
-dotenv.load_dotenv('.env')
+# load custom environment variables defined in `.env` at the root of the project
+dotenv.load_dotenv(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/.env')
 
 CONFIG_TEMPLATE = os.path.join(os.environ['WORKDIR'], 'mmnoise/configs/template.yaml')
 

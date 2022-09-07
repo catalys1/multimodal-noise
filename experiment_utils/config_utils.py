@@ -15,11 +15,17 @@ def pselect(config, key):
     path = []
 
     def recurse(conf):
-        for k in conf:
-            path.append(k)
-            if key in k:
+        if isinstance(conf, (dict, omegaconf.DictConfig)):
+            _iter = conf
+        else:
+            _iter = range(len(conf))
+        for k in _iter:
+            path.append(str(k))
+            if key in '.'.join(path):
                 matches.append(('.'.join(path), conf[k]))
-            elif isinstance(conf[k], (dict, omegaconf.dictconfig.DictConfig)):
+            elif OmegaConf.is_interpolation(conf, k):
+                pass
+            elif isinstance(conf[k], (dict, omegaconf.DictConfig, list, omegaconf.ListConfig)):
                 recurse(conf[k])
             path.pop()
     
