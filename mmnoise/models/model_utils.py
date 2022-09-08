@@ -1,5 +1,9 @@
+from functools import partial
 from importlib import import_module
 import os
+
+import torch
+import transformers
 
 from . import defs
 
@@ -10,6 +14,22 @@ def identity(input, *args, **kwargs):
 
 def noop(*args, **kwargs):
     pass
+
+
+# Adapted from transformers.models.bert.modeling_bert.BertPreTrainedModel._init_weights
+def init_hf_weights(module, mean=0.0, std=0.02):
+    """Initialize the weights"""
+    if isinstance(module, torch.nn.Linear):
+        module.weight.data.normal_(mean=mean, std=std)
+        if module.bias is not None:
+            module.bias.data.zero_()
+    elif isinstance(module, torch.nn.Embedding):
+        module.weight.data.normal_(mean=mean, std=std)
+        if module.padding_idx is not None:
+            module.weight.data[module.padding_idx].zero_()
+    elif isinstance(module, torch.nn.LayerNorm):
+        module.bias.data.zero_()
+        module.weight.data.fill_(1.0)
 
 
 def func_from_str(func_path):
@@ -49,14 +69,12 @@ def vision_model(name, **kwargs):
 
 
 def vision_model_no_fc(name, *, fc_key='fc', **kwargs):
-    from torch.nn import Identity
     model = vision_model(name, **kwargs)
-    setattr(model, fc_key, Identity())
+    setattr(model, fc_key, torch.nn.Identity())
     return model
 
 
 def huggingface_model(name, *, pretrained=False, **kwargs):
-    import transformers
     if pretrained:
         if 'pretrained_model_name_or_path' in kwargs:
             name = kwargs.pop('pretrained_model_name_or_path')
@@ -73,43 +91,20 @@ def huggingface_model(name, *, pretrained=False, **kwargs):
 
 
 def huggingface_model_replace_embeddings(name, *, pretrained=False, config_or_name=None, **kwargs):
-    import torch
-    import transformers
-
     model = huggingface_model(name, pretrained=pretrained, **kwargs)
 
-    # Adapted from transformers.models.bert.modeling_bert.BertPreTrainedModel._init_weights
-    def _init_weights(module):
-        """Initialize the weights"""
-        if isinstance(module, torch.nn.Linear):
-            module.weight.data.normal_(mean=0.0, std=model.config.initializer_range)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, torch.nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=model.config.initializer_range)
-            if module.padding_idx is not None:
-                module.weight.data[module.padding_idx].zero_()
-        elif isinstance(module, torch.nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
-
-    # If no config provided, just randomly re-initialize the embeddings
     if config_or_name is not None:
         if isinstance(config_or_name, str):
-            if os.path.exists(config_or_name):
-                config = transformers.AutoConfig.from_pretrained(config_or_name)
-            else:
-                config = transformers.AutoConfig.for_model(config_or_name.split('-')[0])
+            config = transformers.AutoConfig.from_pretrained(config_or_name)
         else:
             config = config_or_name
         model.embeddings = model.embeddings.__class__(config)
-    model.embeddings.apply(_init_weights)
+    model.embeddings.apply(partial(init_hf_weights, mean=0.0, std=model.config.initializer_range))
 
     return model
 
 
 def bert_tokenizer_for_code(name, **kwargs):
-    import transformers
     tokenizer = transformers.BertTokenizer.from_pretrained("bert-base-cased")
     tokenizer.add_tokens(["[/n]"])
     tokenizer.add_tokens(["[/t]"])
@@ -123,7 +118,6 @@ def mlp_model(name, in_dim, layer_dims):
 
 
 def load_from_basic_checkpoint(net, weights_path, prefix='module.'):
-    import torch
     state = torch.load(weights_path, map_location='cpu')
     state_key = 'state_dict' if 'state_dict' in state else 'model'
     state = state[state_key]
@@ -137,7 +131,6 @@ def load_from_basic_checkpoint(net, weights_path, prefix='module.'):
 
 
 def load_from_moco_pretrained(net, weights_path):
-    import torch
     state = torch.load(weights_path, map_location='cpu')['state_dict']
     for k in list(state.keys()):
         # retain only encoder_q up to before the embedding layer
@@ -153,7 +146,6 @@ def load_from_moco_pretrained(net, weights_path):
 
 def get_output_dim(model):
     from torchvision import models
-    import transformers
     from mmnoise.models.components import mlp
     if isinstance(model, models.ResNet):
         dim = list(model.parameters())[-1].shape[-1] # probably doesn't work in all cases
