@@ -95,9 +95,12 @@ def huggingface_model_replace_embeddings(name, *, pretrained=False, config_or_na
 
     if config_or_name is not None:
         if isinstance(config_or_name, str):
-            config = transformers.AutoConfig.from_pretrained(config_or_name)
+            conf = transformers.AutoConfig.from_pretrained(config_or_name)
         else:
-            config = config_or_name
+            conf = config_or_name
+        config = model.config
+        for key in ['vocab_size', 'type_vocab_size', 'max_position_embeddings']:
+            setattr(config, key, getattr(conf, key))
         model.embeddings = model.embeddings.__class__(config)
     model.embeddings.apply(partial(init_hf_weights, mean=0.0, std=model.config.initializer_range))
 
