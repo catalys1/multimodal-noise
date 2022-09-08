@@ -87,6 +87,7 @@ def purge_runs(runs_path, run_ids, wandb_root='./wandb', dryrun=True):
                     print(str(x))
                 else:
                     x.unlink()
+                    print(f'{str(x)} ... removed')
             if not dryrun:
                 ckpt.rmdir()
         slurm = root.joinpath('slurm')
@@ -96,12 +97,17 @@ def purge_runs(runs_path, run_ids, wandb_root='./wandb', dryrun=True):
                     print(str(x))
                 else:
                     x.unlink()
+                    print(f'{str(x)} ... removed')
         wid = root.joinpath('wandb_id').open().read().strip()
-        wandb = get_wandb_run_from_id(wandb_runs, wid)
-        if dryrun:
-            print(str(wandb))
-        else:
-            subprocess.run(['rm', '-r', str(wandb)])
+        try:
+            wandb = get_wandb_run_from_id(wandb_runs, wid)
+            if dryrun:
+                print(str(wandb))
+            else:
+                subprocess.run(['rm', '-r', str(wandb)])
+                print(f'{str(wandb)} ... removed')
+        except RuntimeError:
+            pass
 
 
 def sync_wandb_offline_runs(wandb_root='./wandb', runs_path=None, run_ids=None):
@@ -149,10 +155,10 @@ if __name__ == '__main__':
             raise argparse.ArgumentTypeError('Boolean value expected.')
 
     p = subparsers.add_parser('purge')
-    p.add_argument('--dryrun', type=t_or_f, default=True)
-    p.add_argument('--runs_path', type=str, default='./rlogs')
+    p.add_argument('-d', '--dryrun', metavar="true/false", type=t_or_f, default=True)
+    p.add_argument('--runs_path', type=str, default='./logs')
     p.add_argument('--run_ids', type=str, nargs='+', required=True)
-    p.add_argument('--wandb_root', type=str, default='./rlogs/wandb')
+    p.add_argument('--wandb_root', type=str, default='./wandb')
     p.set_defaults(func=purge_runs)
 
     p = subparsers.add_parser('sync')
